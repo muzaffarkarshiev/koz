@@ -109,7 +109,9 @@ const SERVED = location.protocol.startsWith("http");
 const API = { // avval server.py proxy, bo'lmasa GitHub Actions yangilab turadigan fayl
   flights: ["/api/flights", "data/flights.json"],
   military: ["/api/military", "data/military.json"],
+  cameras: ["/api/cameras", "data/cameras.json"],
 };
+const TFL_CAMS = "https://api.tfl.gov.uk/Place/Type/JamCam"; // brauzerdan to'g'ridan-to'g'ri ishlaydi
 async function getFirst(urls){ let err; for (const u of urls) { try { return await getJSON(u); } catch (e) { err = e; } } throw err; }
 const SRC = {
   quakes: "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson",
@@ -130,8 +132,8 @@ const GDACS_ICON = { EQ:"◎", TC:"🌀", FL:"🌊", VO:"🌋", DR:"🏜", WF:"�
 
 // ---------- Holat ----------
 const S = {
-  flights: [], military: [], sats: [], satrecs: [], quakes: [], events: [], gdacs: [],
-  on: { flights:true, military:true, sats:true, starlink:false, quakes:true, eonet:true, gdacs:true },
+  flights: [], military: [], sats: [], satrecs: [], quakes: [], events: [], gdacs: [], cameras: [],
+  on: { flights:true, military:true, sats:true, starlink:false, quakes:true, eonet:true, gdacs:true, cameras:true },
   status: {}, starlinkLoaded:false, night:true,
 };
 const LAYERS = [
@@ -142,6 +144,7 @@ const LAYERS = [
   { id:"quakes",   name:"Zilzilalar (24 soat)",  color:"var(--warn)",src:"USGS" },
   { id:"eonet",    name:"Tabiiy hodisalar",      color:"var(--bad)", src:"NASA EONET" },
   { id:"gdacs",    name:"Ofat ogohlantirishlari",color:"#ff3df2",    src:"GDACS" },
+  { id:"cameras",  name:"Kameralar (ochiq)",     color:"#ffd24d",    src:"TfL + Caltrans" },
 ];
 
 // ---------- Globus ----------
@@ -324,6 +327,27 @@ async function loadGdacs(){
   } catch (e) { setStatus("gdacs","err"); }
   render(); renderFeed();
 }
+async function loadCameras(){
+  setStatus("cameras","load");
+  const list = [];
+  // Buyuk Britaniya kameralari to'g'ridan-to'g'ri (CORS ochiq)
+  try {
+    const d = await getJSON(TFL_CAMS);
+    for (const c of d) {
+      const props = {}; for (const p of c.additionalProperties || []) props[p.key] = p.value;
+      if (props.imageUrl && c.lat && c.lon)
+        list.push({ kind:"camera", lat:c.lat, lng:c.lon, name:c.commonName, img:props.imageUrl, video:props.videoUrl, cc:"GB", alt:0.003, label:(c.commonName||"Kamera") });
+    }
+  } catch {}
+  // Qolgan davlatlar — server yoki GitHub fayli orqali
+  try {
+    const d = await getFirst(API.cameras);
+    for (const c of d.cameras || []) list.push({ kind:"camera", lat:c.lat, lng:c.lng, name:c.name, img:c.img, video:c.video, cc:c.cc, alt:0.003, label:(c.name||"Kamera") });
+  } catch {}
+  S.cameras = list.slice(0, 6000);
+  setStatus("cameras", list.length ? "ok" : "err");
+  render();
+}
 async function loadKp(){
   try { const d = await getJSON(SRC.kp); const last = d[d.length-1]; const kp = last.Kp ?? last[1];
     const b = document.getElementById("s-kp"); b.textContent = (+kp).toFixed(1); b.style.color = kp >= 5 ? "var(--bad)" : kp >= 4 ? "var(--warn)" : "var(--acc)"; } catch {}
@@ -337,11 +361,13 @@ function render(onlyParticles){
   if (S.on.military && S.military.length) sets.push({ list:S.military, color:"#ff6b3d", size:4 });
   const sats = S.sats.filter(s => s.starlink ? S.on.starlink : S.on.sats);
   if (sats.length) sets.push({ list:sats, color:"#c58bff", size:2.6 });
+  if (S.on.cameras && S.cameras.length) sets.push({ list:S.cameras, color:"#ffd24d", size:3 });
   globe.particlesData(sets);
   document.getElementById("n-flights").textContent = fmt(S.flights.length);
   document.getElementById("n-military").textContent = fmt(S.military.length);
   document.getElementById("n-sats").textContent = fmt(S.sats.filter(s => !s.starlink).length);
   document.getElementById("n-starlink").textContent = fmt(S.sats.filter(s => s.starlink).length);
+  document.getElementById("n-cameras").textContent = fmt(S.cameras.length);
   document.getElementById("s-fl").textContent = fmt(S.flights.length + S.military.length);
   document.getElementById("s-sat").textContent = fmt(S.sats.length);
   if (onlyParticles) return;
@@ -378,6 +404,12 @@ function showInfo(d){
       ${row("Balandlik", d.altM ? fmt(Math.round(d.altM)) + " m" : "")}${row("Tezlik", d.vel != null ? Math.round(d.vel*3.6) + " km/soat" : "")}
       ${row("Yo'nalish", d.track != null ? Math.round(d.track) + "°" : "")}${row("Koordinata", d.lat.toFixed(3)+", "+d.lng.toFixed(3))}
       ${row("Havola", `<a href="https://globe.adsbexchange.com/?icao=${encodeURIComponent(d.id)}" target="_blank" rel="noopener">ADS-B Exchange</a>`)}</table>`;
+  } else if (d.kind === "camera") {
+    h = `<b style="color:#ffd24d">📷 ${esc(d.name || "Kamera")}</b>
+      <div style="margin:8px 0"><img src="${esc(d.img)}" alt="kamera" style="max-width:100%;border:1px solid var(--line);border-radius:4px" referrerpolicy="no-referrer" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><div style="display:none;color:var(--dim)">Surat hozir yuklanmadi</div></div>
+      <table>${row("Davlat", esc(d.cc))}${row("Koordinata", d.lat.toFixed(4)+", "+d.lng.toFixed(4))}
+      ${row("Video", d.video ? `<a href="${esc(d.video)}" target="_blank" rel="noopener">qisqa klip</a>` : "")}
+      ${row("Yangilash", `<a href="#" onclick="this.previousElementSibling;event.preventDefault();const i=document.querySelector('#infoBody img');if(i)i.src=i.src.split('?')[0]+'?t='+Date.now()">suratni yangilash</a>`)}</table>`;
   } else if (d.kind === "sat") {
     h = `<b style="color:var(--sat)">🛰 ${esc(d.name)}</b><table>${row("NORAD", esc(d.norad))}${row("Guruh", esc(d.group))}
       ${row("Balandlik", fmt(Math.round(d.hKm)) + " km")}${row("Tezlik", d.vKms ? d.vKms.toFixed(2) + " km/s" : "")}
@@ -423,13 +455,14 @@ document.getElementById("search").addEventListener("keydown", async e => {
 setInterval(() => { document.getElementById("clock").textContent = new Date().toISOString().slice(11,19) + " UTC"; }, 1000);
 
 // ---------- Ishga tushirish ----------
-loadQuakes(); loadEonet(); loadGdacs(); loadKp(); loadSats("main"); loadFlights(); loadMilitary();
+loadQuakes(); loadEonet(); loadGdacs(); loadKp(); loadSats("main"); loadFlights(); loadMilitary(); loadCameras();
 setInterval(loadFlights, REFRESH.flights);
 setInterval(loadMilitary, REFRESH.military);
 setInterval(loadQuakes, REFRESH.quakes);
 setInterval(loadEonet, REFRESH.eonet);
 setInterval(loadGdacs, REFRESH.gdacs);
 setInterval(loadKp, REFRESH.kp);
+setInterval(loadCameras, 600e3);
 setInterval(propagate, REFRESH.satProp);
 })();
 </script>

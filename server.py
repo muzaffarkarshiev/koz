@@ -25,7 +25,7 @@ UA = "KOZ-OSINT-Dashboard/1.0 (+https://github.com)"
 OPENSKY_URL = "https://opensky-network.org/api/states/all"
 OPENSKY_TOKEN_URL = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
 MILITARY_URL = "https://api.adsb.lol/v2/mil"
-CACHE_SECONDS = {"flights": 30, "military": 30}
+CACHE_SECONDS = {"flights": 30, "military": 30, "cameras": 600}
 
 _cache = {}
 _lock = threading.Lock()
@@ -76,7 +76,47 @@ def fetch_military():
     return {"ac": ac}
 
 
-FETCHERS = {"flights": fetch_flights, "military": fetch_military}
+# --- Kameralar: faqat davlat / yo'l xizmatlari OMMAGA OCHIQ efirga uzatadigan kameralar ---
+TFL_URL = "https://api.tfl.gov.uk/Place/Type/JamCam"
+# Caltrans (AQSh, Kaliforniya) rayonlari — ochiq ma'lumot, kalit talab qilmaydi
+CALTRANS_DISTRICTS = ["d3", "d4", "d5", "d6", "d7", "d8", "d10", "d11", "d12"]
+CALTRANS_URL = "https://cwwp2.dot.ca.gov/data/{d}/cctv/cctvStatus{D}.json"
+
+
+def fetch_cameras():
+    cams = []
+    # Buyuk Britaniya — Transport for London JamCams
+    try:
+        for c in http_get(TFL_URL):
+            props = {p["key"]: p.get("value") for p in c.get("additionalProperties", [])}
+            if props.get("imageUrl") and c.get("lat") and c.get("lon"):
+                cams.append({"lat": round(c["lat"], 5), "lng": round(c["lon"], 5),
+                             "name": c.get("commonName", ""), "img": props["imageUrl"],
+                             "video": props.get("videoUrl"), "cc": "GB"})
+    except Exception:  # noqa: BLE001
+        pass
+    # AQSh (Kaliforniya) — Caltrans
+    for d in CALTRANS_DISTRICTS:
+        try:
+            data = http_get(CALTRANS_URL.format(d=d, D=d.upper()))
+            for item in data.get("data", []):
+                cc = item.get("cctv", {})
+                loc, img = cc.get("location", {}), cc.get("imageData", {})
+                url = (img.get("static") or {}).get("currentImageURL") or img.get("streamingVideoURL")
+                try:
+                    lat, lng = float(loc.get("latitude")), float(loc.get("longitude"))
+                except (TypeError, ValueError):
+                    continue
+                if url and lat and lng:
+                    cams.append({"lat": round(lat, 5), "lng": round(lng, 5),
+                                 "name": loc.get("locationName") or loc.get("nearbyPlace") or "",
+                                 "img": url, "video": None, "cc": "US"})
+        except Exception:  # noqa: BLE001
+            continue
+    return {"cameras": cams}
+
+
+FETCHERS = {"flights": fetch_flights, "military": fetch_military, "cameras": fetch_cameras}
 
 
 def cached(name):

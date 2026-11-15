@@ -131,7 +131,7 @@
 </div>
 
 <footer class="panel">
-  <span>Manbalar: OpenSky · adsb.lol · CelesTrak · USGS · NASA EONET · GDACS · NOAA SWPC</span>
+  <span>Xarita: Esri World Imagery · Manbalar: OpenSky · adsb.lol · CelesTrak · USGS · NASA EONET · GDACS · NOAA SWPC</span>
   <span class="spacer"></span>
   <span id="lastUpd"></span>
 </footer>
@@ -246,6 +246,19 @@ globe.onGlobeReady(async () => {
     }).catch(()=>{});
   } catch (e) { console.warn("3D yaxshilash:", e); }
 });
+
+// ---------- Yaqinlashganda: batafsil sun'iy yo'ldosh plitkalari (ko'cha darajasigacha) ----------
+const TILE = (x, y, l) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${l}/${y}/${x}`;
+let tilesOn = false;
+function setTiles(on){
+  if (on === tilesOn) return; tilesOn = on;
+  try {
+    if (on) { globe.globeTileEngineMaxLevel(17).globeTileEngineUrl(TILE); }
+    else { globe.globeTileEngineUrl(null); setTimeout(sharpen, 1500); }
+    if (clouds) clouds.visible = !on && !S.night;
+  } catch (e) {}
+}
+globe.onZoom(pov => { if (pov.altitude < 0.75) setTiles(true); else if (pov.altitude > 0.95) setTiles(false); });
 
 // ---------- Bosish: barmoq/sichqoncha ostidagi eng yaqin nuqtani topish ----------
 function pickAt(x, y){
@@ -536,7 +549,7 @@ function fly(d, alt = 0.9){ globe.controls().autoRotate = false; document.getEle
 document.getElementById("bRotate").onclick = e => { const c = globe.controls(); c.autoRotate = !c.autoRotate; e.target.classList.toggle("on", c.autoRotate); };
 document.getElementById("bHome").onclick = () => globe.pointOfView({ lat:35, lng:64, altitude:2.4 }, 1500);
 document.getElementById("bUz").onclick = () => fly({ lat:41.3, lng:64.5 }, 0.45);
-document.getElementById("bTex").onclick = e => { S.night = !S.night; globe.globeImageUrl(S.night ? TEX.night : TEX.day); if (clouds) clouds.visible = !S.night; setTimeout(sharpen, 2500); e.target.classList.toggle("on", !S.night); };
+document.getElementById("bTex").onclick = e => { S.night = !S.night; globe.globeImageUrl(S.night ? TEX.night : TEX.day); if (clouds) clouds.visible = !S.night && !tilesOn; setTimeout(sharpen, 2500); e.target.classList.toggle("on", !S.night); };
 
 document.getElementById("search").addEventListener("keydown", async e => {
   if (e.key !== "Enter") return;

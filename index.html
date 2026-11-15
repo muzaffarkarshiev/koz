@@ -102,7 +102,7 @@
     <button id="bRotate" class="on">Aylanish</button>
     <button id="bHome">Boshiga</button>
     <button id="bUz">O'zbekiston</button>
-    <button id="bTex">Kun/Tun</button>
+    <button id="bTex" class="on">Kun/Tun</button>
     <button id="bTv">📺 TV</button>
   </div>
 </aside>
@@ -158,8 +158,10 @@ const SRC = {
 const REFRESH = { flights: 30e3, military: 30e3, quakes: 120e3, eonet: 600e3, gdacs: 600e3, kp: 900e3, satProp: 2e3 };
 const TEX = {
   night: "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-night.jpg",
-  day: "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-blue-marble.jpg",
-  bump: "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png",
+  day: "https://cdn.jsdelivr.net/gh/turban/webgl-earth@master/images/2_no_clouds_4k.jpg",
+  bump: "https://cdn.jsdelivr.net/gh/turban/webgl-earth@master/images/elev_bump_4k.jpg",
+  water: "https://cdn.jsdelivr.net/gh/turban/webgl-earth@master/images/water_4k.png",
+  clouds: "https://cdn.jsdelivr.net/gh/turban/webgl-earth@master/images/fair_clouds_4k.png",
   sky: "https://cdn.jsdelivr.net/npm/three-globe/example/img/night-sky.png",
 };
 const EONET_ICON = { wildfires:"🔥", volcanoes:"🌋", severeStorms:"🌀", seaLakeIce:"🧊", floods:"🌊", drought:"🏜", dustHaze:"🌫", landslides:"⛰", snow:"❄", tempExtremes:"🌡", waterColor:"💧", manmade:"⚠", earthquakes:"◎" };
@@ -169,7 +171,7 @@ const GDACS_ICON = { EQ:"◎", TC:"🌀", FL:"🌊", VO:"🌋", DR:"🏜", WF:"�
 const S = {
   flights: [], military: [], sats: [], satrecs: [], quakes: [], events: [], gdacs: [], cameras: [],
   on: { flights:true, military:true, sats:true, starlink:false, quakes:true, eonet:true, gdacs:true, cameras:true },
-  status: {}, starlinkLoaded:false, night:true,
+  status: {}, starlinkLoaded:false, night:false,
 };
 const LAYERS = [
   { id:"flights",  name:"Fuqaro reyslari",       color:"var(--sky)", src:"OpenSky" },
@@ -185,7 +187,7 @@ const LAYERS = [
 // ---------- Globus ----------
 const el = document.getElementById("globe");
 const globe = Globe()(el)
-  .globeImageUrl(TEX.night)
+  .globeImageUrl(TEX.day)
   .bumpImageUrl(TEX.bump)
   .backgroundImageUrl(TEX.sky)
   .showAtmosphere(true).atmosphereColor("#3fd3ff").atmosphereAltitude(0.18)
@@ -194,14 +196,12 @@ const globe = Globe()(el)
   .particleLat("lat").particleLng("lng").particleAltitude("alt")
   .particlesColor(d => d.color).particlesSize(d => d.size).particlesSizeAttenuation(false)
   .particleLabel(p => p ? `<div class="tip">${esc(p.label || "")}</div>` : "")
-  .onParticleClick(p => { if (p) showInfo(p); })
   // nuqtalar: zilzilalar
   .pointLat("lat").pointLng("lng")
   .pointAltitude(d => 0.005 + Math.max(0, d.mag - 2) * 0.025)
   .pointRadius(d => 0.12 + d.mag * 0.06)
   .pointColor(d => magColor(d.mag))
   .pointLabel(d => d ? `<div class="tip">M${(d.mag||0).toFixed(1)} — ${esc(d.place)}</div>` : "")
-  .onPointClick(d => { if (d) showInfo(d); })
   // halqalar: kuchli zilzilalar
   .ringLat("lat").ringLng("lng").ringColor(() => t => `rgba(255,120,60,${1 - t})`)
   .ringMaxRadius(d => d.mag * 1.2).ringPropagationSpeed(2).ringRepeatPeriod(1400)
@@ -219,8 +219,64 @@ globe.pointOfView({ lat: 35, lng: 64, altitude: 2.4 });
 try {
   const rnd = globe.renderer();
   rnd.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2.5));
-  const sc = globe.scene && globe.scene(); if (sc) {}
 } catch (e) {}
+
+// ---------- 3D Yer: 4K tekstura, relyef, suv yaltirashi, bulutlar ----------
+let clouds = null;
+function loadImg(u){ return new Promise((ok,no)=>{ const i=new Image(); i.crossOrigin="anonymous"; i.onload=()=>ok(i); i.onerror=no; i.src=u; }); }
+function sharpen(){
+  try { const m = globe.globeMaterial(), a = globe.renderer().capabilities.getMaxAnisotropy();
+    for (const k of ["map","bumpMap","specularMap"]) if (m[k]) { m[k].anisotropy = a; m[k].needsUpdate = true; } } catch (e) {}
+}
+globe.onGlobeReady(async () => {
+  try {
+    const mat = globe.globeMaterial();
+    mat.bumpScale = 22; mat.shininess = 18; mat.specular.set(0x3a4a5a);
+    sharpen(); setTimeout(sharpen, 3000);
+    const Tex = mat.map.constructor;
+    let mesh = null; globe.scene().traverse(o => { if (o.material === mat) mesh = o; });
+    const mk = img => { const t = new Tex(img); if (mat.map.colorSpace) t.colorSpace = mat.map.colorSpace; t.needsUpdate = true; return t; };
+    loadImg(TEX.water).then(img => { const t = mk(img); t.colorSpace = ""; mat.specularMap = t; mat.needsUpdate = true; sharpen(); }).catch(()=>{});
+    if (mesh) loadImg(TEX.clouds).then(img => {
+      const cm = new mat.constructor({ map: mk(img), transparent: true, opacity: 0.8, depthWrite: false });
+      clouds = new mesh.constructor(new mesh.geometry.constructor(globe.getGlobeRadius() * 1.004, 96, 96), cm);
+      clouds.visible = !S.night; mesh.add(clouds);
+      let last = performance.now();
+      (function spin(now){ clouds.rotation.y += (now - last) * 0.000004; last = now; requestAnimationFrame(spin); })(last);
+    }).catch(()=>{});
+  } catch (e) { console.warn("3D yaxshilash:", e); }
+});
+
+// ---------- Bosish: barmoq/sichqoncha ostidagi eng yaqin nuqtani topish ----------
+function pickAt(x, y){
+  const R = (innerWidth < 800 ? 30 : 18); let best = null, bd = R * R;
+  const pov = globe.pointOfView(), rad = Math.PI / 180;
+  const cl = pov.lat * rad, cn = pov.lng * rad, lim = 1 / (1 + pov.altitude);
+  const lists = [];
+  if (S.on.cameras) lists.push(S.cameras);
+  if (S.on.military) lists.push(S.military);
+  if (S.on.flights) lists.push(S.flights);
+  if (S.on.quakes) lists.push(S.quakes);
+  lists.push(S.sats.filter(o => o.starlink ? S.on.starlink : S.on.sats));
+  for (const list of lists) for (const o of list) {
+    const ol = o.lat * rad, on = o.lng * rad;
+    const dot = Math.sin(cl) * Math.sin(ol) + Math.cos(cl) * Math.cos(ol) * Math.cos(on - cn);
+    if (dot < lim - (o.kind === "sat" ? 0.9 : 0.02)) continue;            // globus orqasida
+    const alt = o.kind === "quake" ? 0.005 + Math.max(0, o.mag - 2) * 0.025 : (o.alt || 0);
+    const sc = globe.getScreenCoords(o.lat, o.lng, alt); if (!sc) continue;
+    const d = (sc.x - x) ** 2 + (sc.y - y) ** 2;
+    if (d < bd) { bd = d; best = o; }
+  }
+  return best;
+}
+let pd = null;
+el.addEventListener("pointerdown", e => { pd = { x: e.clientX, y: e.clientY, t: Date.now() }; }, true);
+el.addEventListener("pointerup", e => {
+  if (!pd) return; const moved = Math.hypot(e.clientX - pd.x, e.clientY - pd.y), dt = Date.now() - pd.t; pd = null;
+  if (moved > 8 || dt > 600 || (e.target.closest && e.target.closest(".ev"))) return;
+  const o = pickAt(e.clientX, e.clientY);
+  if (o) { globe.controls().autoRotate = false; document.getElementById("bRotate").classList.remove("on"); showInfo(o); }
+}, true);
 addEventListener("resize", () => globe.width(innerWidth).height(innerHeight));
 
 // ---------- Yordamchi ----------
@@ -376,13 +432,13 @@ async function loadCameras(){
     for (const c of d) {
       const props = {}; for (const p of c.additionalProperties || []) props[p.key] = p.value;
       if (props.imageUrl && c.lat && c.lon)
-        list.push({ kind:"camera", lat:c.lat, lng:c.lon, name:c.commonName, img:props.imageUrl, video:props.videoUrl, cc:"GB", alt:0.003, label:(c.commonName||"Kamera") });
+        list.push({ kind:"camera", lat:c.lat, lng:c.lon, name:c.commonName, img:props.imageUrl, video:props.videoUrl, cc:"GB", alt:0.006, label:(c.commonName||"Kamera") });
     }
   } catch {}
   // Qolgan davlatlar — server yoki GitHub fayli orqali
   try {
     const d = await getFirst(API.cameras);
-    for (const c of d.cameras || []) list.push({ kind:"camera", lat:c.lat, lng:c.lng, name:c.name, img:c.img, video:c.video, cc:c.cc, alt:0.003, label:(c.name||"Kamera") });
+    for (const c of d.cameras || []) list.push({ kind:"camera", lat:c.lat, lng:c.lng, name:c.name, img:c.img, video:c.video, cc:c.cc, alt:0.006, label:(c.name||"Kamera") });
   } catch {}
   const seen = new Set(); const uniq = [];
   for (const c of list) { if (!c.img || seen.has(c.img)) continue; seen.add(c.img); uniq.push(c); }
@@ -477,7 +533,7 @@ function fly(d, alt = 0.9){ globe.controls().autoRotate = false; document.getEle
 document.getElementById("bRotate").onclick = e => { const c = globe.controls(); c.autoRotate = !c.autoRotate; e.target.classList.toggle("on", c.autoRotate); };
 document.getElementById("bHome").onclick = () => globe.pointOfView({ lat:35, lng:64, altitude:2.4 }, 1500);
 document.getElementById("bUz").onclick = () => fly({ lat:41.3, lng:64.5 }, 0.45);
-document.getElementById("bTex").onclick = e => { S.night = !S.night; globe.globeImageUrl(S.night ? TEX.night : TEX.day); e.target.classList.toggle("on", !S.night); };
+document.getElementById("bTex").onclick = e => { S.night = !S.night; globe.globeImageUrl(S.night ? TEX.night : TEX.day); if (clouds) clouds.visible = !S.night; setTimeout(sharpen, 2500); e.target.classList.toggle("on", !S.night); };
 
 document.getElementById("search").addEventListener("keydown", async e => {
   if (e.key !== "Enter") return;

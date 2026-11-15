@@ -216,6 +216,11 @@ const globe = Globe()(el)
 globe.controls().autoRotate = true;
 globe.controls().autoRotateSpeed = 0.35;
 globe.pointOfView({ lat: 35, lng: 64, altitude: 2.4 });
+try {
+  const rnd = globe.renderer();
+  rnd.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2.5));
+  const sc = globe.scene && globe.scene(); if (sc) {}
+} catch (e) {}
 addEventListener("resize", () => globe.width(innerWidth).height(innerHeight));
 
 // ---------- Yordamchi ----------
@@ -394,8 +399,8 @@ async function loadKp(){
 let lastHtmlKey = "";
 function render(onlyParticles){
   const sets = [];
-  if (S.on.flights && S.flights.length)  sets.push({ list:S.flights,  color:"#4fb8ff", size:2.2 });
-  if (S.on.military && S.military.length) sets.push({ list:S.military, color:"#ff6b3d", size:4 });
+  if (S.on.flights && S.flights.length)  sets.push({ list:S.flights,  color:"#5fc4ff", size:2.6 });
+  if (S.on.military && S.military.length) sets.push({ list:S.military, color:"#ff7a4d", size:4.5 });
   const sats = S.sats.filter(s => s.starlink ? S.on.starlink : S.on.sats);
   if (sats.length) sets.push({ list:sats, color:"#c58bff", size:2.6 });
   if (S.on.cameras && S.cameras.length) sets.push({ list:S.cameras, color:"#ffd24d", size:3 });
@@ -522,10 +527,14 @@ function renderTvChannels(cc){
   box.querySelectorAll(".tvCh").forEach(el => el.onclick = () => playTv(list[+el.dataset.i]));
 }
 function stopTv(){ if (tvHls){ try{tvHls.destroy();}catch(e){} tvHls=null; } }
-function tryPlay(v, url){ return new Promise(res=>{
-  stopTv();
-  const native = v.canPlayType("application/vnd.apple.mpegurl");
-  if (native && !(window.Hls && Hls.isSupported())) { v.src = url; v.play().then(()=>res(true)).catch(()=>res(false)); return; }
+function playNative(v, url){ return new Promise(res=>{
+  let done=false; const fin=r=>{ if(done)return; done=true; v.onloadeddata=null; v.onerror=null; res(r); };
+  const t = setTimeout(()=>fin(v.readyState >= 2), 9000);
+  v.onloadeddata = ()=>{ clearTimeout(t); v.play().catch(()=>{}); fin(true); };
+  v.onerror = ()=>{ clearTimeout(t); fin(false); };
+  v.src = url; v.load();
+});}
+function playHls(v, url){ return new Promise(res=>{
   const hls = new Hls({ manifestLoadingTimeOut:9000, manifestLoadingMaxRetry:1 });
   tvHls = hls; let done=false; const fin=r=>{ if(done)return; done=true; res(r); };
   const t = setTimeout(()=>fin(false), 11000);
@@ -533,6 +542,17 @@ function tryPlay(v, url){ return new Promise(res=>{
   hls.on(Hls.Events.ERROR, (e,d)=>{ if(d.fatal){ clearTimeout(t); fin(false); } });
   hls.loadSource(url); hls.attachMedia(v);
 });}
+async function tryPlay(v, url){
+  stopTv(); v.pause(); v.removeAttribute("src"); try { v.load(); } catch(e){}
+  // Avval qurilmaning o'z pleyeri (iPhone/Safari) — CORS cheklovisiz ishlaydi
+  if (v.canPlayType("application/vnd.apple.mpegurl")) {
+    if (await playNative(v, url)) return true;
+    stopTv(); v.removeAttribute("src"); try { v.load(); } catch(e){}
+  }
+  // Keyin hls.js (Chrome/Android/desktop)
+  if (window.Hls && Hls.isSupported()) { if (await playHls(v, url)) return true; }
+  return false;
+}
 async function playTv(ch){
   const v = document.getElementById("tvVideo"), status = document.getElementById("tvStatus");
   document.getElementById("tvNow").textContent = ch.n;

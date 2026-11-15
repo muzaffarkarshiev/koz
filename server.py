@@ -182,7 +182,7 @@ def build_tv(outdir):
         key = st.get("channel") or (cc + "|" + name)
         if key in seen:
             e = seen[key]
-            if len(e["u"]) < 3:
+            if len(e["u"]) < 6:
                 e["u"].append(url)
             continue
         e = {"n": name, "q": st.get("quality"), "u": [url]}

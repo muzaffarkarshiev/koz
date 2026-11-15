@@ -27,12 +27,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Windy kesh (12 soatda bir yangilanadi)
+        uses: actions/cache@v4
+        with:
+          path: windy_cache
+          key: windy-${{ github.run_id }}
+          restore-keys: windy-
       - name: Reys, kamera va TV ma'lumotini olish
         run: python server.py --dump site/data
         env:
           OPENSKY_CLIENT_ID: ${{ secrets.OPENSKY_CLIENT_ID }}
           OPENSKY_CLIENT_SECRET: ${{ secrets.OPENSKY_CLIENT_SECRET }}
           WINDY_KEY: ${{ secrets.WINDY_KEY }}
+          WINDY_CACHE_DIR: windy_cache
         continue-on-error: true
       - name: Sayt fayllarini tayyorlash
         run: mkdir -p site && cp index.html site/

@@ -113,9 +113,21 @@ def fetch_cameras():
                                  "img": url, "video": None, "cc": "US"})
         except Exception:  # noqa: BLE001
             continue
-    # Butun dunyo ommaviy veb-kameralari — Windy (ixtiyoriy; WINDY_KEY kerak)
+    # Butun dunyo ommaviy veb-kameralari — Windy (WINDY_KEY kerak).
+    # Limitni tejash uchun 12 soatda bir marta yangilanadi (WINDY_CACHE_DIR keshi).
+    cache_dir = os.environ.get("WINDY_CACHE_DIR")
+    cache_file = os.path.join(cache_dir, "windy.json") if cache_dir else None
     wkey = os.environ.get("WINDY_KEY")
-    if wkey:
+    windy = None
+    if cache_file and os.path.exists(cache_file):
+        try:
+            blob = json.load(open(cache_file))
+            if time.time() - blob.get("ts", 0) < 12 * 3600:
+                windy = blob.get("cameras", [])
+        except Exception:  # noqa: BLE001
+            windy = None
+    if windy is None and wkey:
+        windy = []
         try:
             offset = 0
             while offset < 2000:
@@ -130,14 +142,23 @@ def fetch_cameras():
                     cur = (w.get("images") or {}).get("current") or {}
                     prev = cur.get("preview") or cur.get("thumbnail")
                     if prev and loc.get("latitude") is not None:
-                        cams.append({"lat": round(loc["latitude"], 5), "lng": round(loc["longitude"], 5),
-                                     "name": w.get("title", ""), "img": prev, "video": None,
-                                     "cc": loc.get("country_code") or ""})
+                        windy.append({"lat": round(loc["latitude"], 5), "lng": round(loc["longitude"], 5),
+                                      "name": w.get("title", ""), "img": prev, "video": None,
+                                      "cc": loc.get("country_code") or ""})
                 offset += 50
                 if offset >= (d.get("total") or 0):
                     break
         except Exception:  # noqa: BLE001
             pass
+        if cache_file and windy:
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+                with open(cache_file, "w") as f:
+                    json.dump({"ts": time.time(), "cameras": windy}, f)
+            except Exception:  # noqa: BLE001
+                pass
+    if windy:
+        cams.extend(windy)
     return {"cameras": cams}
 
 

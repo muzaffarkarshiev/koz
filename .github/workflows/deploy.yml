@@ -27,8 +27,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Reys ma'lumotini olish
+      - name: Reys, kamera va TV ma'lumotini olish
         run: python server.py --dump site/data
+        env:
+          OPENSKY_CLIENT_ID: ${{ secrets.OPENSKY_CLIENT_ID }}
+          OPENSKY_CLIENT_SECRET: ${{ secrets.OPENSKY_CLIENT_SECRET }}
+          WINDY_KEY: ${{ secrets.WINDY_KEY }}
         continue-on-error: true
       - name: Sayt fayllarini tayyorlash
         run: mkdir -p site && cp index.html site/

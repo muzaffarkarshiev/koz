@@ -113,7 +113,70 @@ def fetch_cameras():
                                  "img": url, "video": None, "cc": "US"})
         except Exception:  # noqa: BLE001
             continue
+    # Butun dunyo ommaviy veb-kameralari — Windy (ixtiyoriy; WINDY_KEY kerak)
+    wkey = os.environ.get("WINDY_KEY")
+    if wkey:
+        try:
+            offset = 0
+            while offset < 2000:
+                d = http_get("https://api.windy.com/webcams/api/v3/webcams"
+                             f"?limit=50&offset={offset}&include=location,images",
+                             headers={"x-windy-api-key": wkey})
+                webs = d.get("webcams") or []
+                if not webs:
+                    break
+                for w in webs:
+                    loc = w.get("location") or {}
+                    cur = (w.get("images") or {}).get("current") or {}
+                    prev = cur.get("preview") or cur.get("thumbnail")
+                    if prev and loc.get("latitude") is not None:
+                        cams.append({"lat": round(loc["latitude"], 5), "lng": round(loc["longitude"], 5),
+                                     "name": w.get("title", ""), "img": prev, "video": None,
+                                     "cc": loc.get("country_code") or ""})
+                offset += 50
+                if offset >= (d.get("total") or 0):
+                    break
+        except Exception:  # noqa: BLE001
+            pass
     return {"cameras": cams}
+
+
+IPTV = "https://iptv-org.github.io/api"
+
+
+def build_tv(outdir):
+    """Butun dunyo telekanallari — ochiq iptv-org ro'yxatidan tv.json tayyorlaydi."""
+    import sys
+    chans = {c["id"]: c for c in http_get(IPTV + "/channels.json")}
+    streams = http_get(IPTV + "/streams.json")
+    cmeta = {c["code"]: c for c in http_get(IPTV + "/countries.json")}
+    bycc, seen = {}, {}
+    for st in streams:
+        url = st.get("url")
+        if not url or not url.startswith("https") or ".m3u8" not in url:
+            continue  # faqat https HLS oqimlar (statik saytda http bloklanadi)
+        ch = chans.get(st.get("channel"))
+        cc = (ch or {}).get("country") or "ZZ"
+        name = (ch or {}).get("name") or st.get("title") or "TV"
+        key = st.get("channel") or (cc + "|" + name)
+        if key in seen:
+            e = seen[key]
+            if len(e["u"]) < 3:
+                e["u"].append(url)
+            continue
+        e = {"n": name, "q": st.get("quality"), "u": [url]}
+        seen[key] = e
+        bycc.setdefault(cc, []).append(e)
+    clist = []
+    for cc, lst in bycc.items():
+        lst.sort(key=lambda e: (e["n"] or "").lower())
+        m = cmeta.get(cc, {})
+        clist.append({"code": cc, "name": m.get("name") or cc, "flag": m.get("flag", ""), "count": len(lst)})
+    clist.sort(key=lambda c: (-c["count"], c["name"]))
+    out = {"countries": clist, "channels": bycc, "fetched": int(time.time())}
+    with open(os.path.join(outdir, "tv.json"), "w") as f:
+        json.dump(out, f, separators=(",", ":"), ensure_ascii=False)
+    print(f"tv: {sum(len(v) for v in bycc.values())} kanal, {len(clist)} davlat", flush=True)
 
 
 FETCHERS = {"flights": fetch_flights, "military": fetch_military, "cameras": fetch_cameras}
@@ -182,6 +245,10 @@ def dump(outdir):
             print(f"{name}: OK")
         except Exception as e:  # noqa: BLE001
             print(f"{name}: XATO {e}", file=sys.stderr)
+    try:
+        build_tv(outdir)
+    except Exception as e:  # noqa: BLE001
+        print(f"tv: XATO {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":

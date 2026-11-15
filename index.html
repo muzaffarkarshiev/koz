@@ -344,7 +344,9 @@ async function loadCameras(){
     const d = await getFirst(API.cameras);
     for (const c of d.cameras || []) list.push({ kind:"camera", lat:c.lat, lng:c.lng, name:c.name, img:c.img, video:c.video, cc:c.cc, alt:0.003, label:(c.name||"Kamera") });
   } catch {}
-  S.cameras = list.slice(0, 6000);
+  const seen = new Set(); const uniq = [];
+  for (const c of list) { if (!c.img || seen.has(c.img)) continue; seen.add(c.img); uniq.push(c); }
+  S.cameras = uniq.slice(0, 6000);
   setStatus("cameras", list.length ? "ok" : "err");
   render();
 }

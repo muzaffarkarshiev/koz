@@ -340,7 +340,10 @@ async function loadSats(group){
   setStatus(id, "load");
   try {
     const groups = group === "starlink" ? ["starlink"] : ["stations","visual","gps-ops","weather","resource","science","geo"];
-    const texts = await Promise.allSettled(groups.map(g => getText(SRC.tle(g))));
+    // avval serverda keshlangan fayl (CelesTrak brauzerni tez bloklaydi), bo'lmasa to'g'ridan-to'g'ri
+    let pre = null;
+    try { pre = (await getJSON(group === "starlink" ? "data/tle-starlink.json" : "data/tle.json")).groups; } catch (e) {}
+    const texts = await Promise.allSettled(groups.map(g => pre && pre[g] ? Promise.resolve(pre[g]) : getText(SRC.tle(g))));
     const seen = new Set(S.satrecs.map(s => s.norad));
     texts.forEach((r, gi) => {
       if (r.status !== "fulfilled") return;

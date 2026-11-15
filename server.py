@@ -162,6 +162,52 @@ def fetch_cameras():
     return {"cameras": cams}
 
 
+TLE_GROUPS = ["stations", "visual", "gps-ops", "weather", "resource", "science", "geo"]
+TLE_URL = "https://celestrak.org/NORAD/elements/gp.php?GROUP={g}&FORMAT=tle"
+
+
+def http_text(url, timeout=40):
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read().decode("utf-8", "replace")
+
+
+def build_tle(outdir):
+    """Yo'ldosh orbitalari (TLE). CelesTrak tez-tez so'rovni bloklaydi, shuning uchun 6 soat keshlanadi."""
+    cache_dir = os.environ.get("WINDY_CACHE_DIR")
+    for name, groups in (("tle", TLE_GROUPS), ("tle-starlink", ["starlink"])):
+        cache_file = os.path.join(cache_dir, name + ".json") if cache_dir else None
+        blob = None
+        if cache_file and os.path.exists(cache_file):
+            try:
+                blob = json.load(open(cache_file))
+                if time.time() - blob.get("ts", 0) > 6 * 3600:
+                    blob = None
+            except Exception:  # noqa: BLE001
+                blob = None
+        if blob is None:
+            got = {}
+            for g in groups:
+                try:
+                    t = http_text(TLE_URL.format(g=g))
+                    if t.count("\n") > 2 and "<html" not in t.lower():
+                        got[g] = t
+                except Exception:  # noqa: BLE001
+                    pass
+                time.sleep(1)
+            if not got:
+                print(f"{name}: XATO (CelesTrak javob bermadi)", flush=True)
+                continue
+            blob = {"ts": time.time(), "groups": got}
+            if cache_file:
+                os.makedirs(cache_dir, exist_ok=True)
+                with open(cache_file, "w") as f:
+                    json.dump(blob, f)
+        with open(os.path.join(outdir, name + ".json"), "w") as f:
+            json.dump(blob, f, separators=(",", ":"))
+        print(f"{name}: {len(blob['groups'])} guruh", flush=True)
+
+
 IPTV = "https://iptv-org.github.io/api"
 
 
@@ -266,6 +312,10 @@ def dump(outdir):
             print(f"{name}: OK")
         except Exception as e:  # noqa: BLE001
             print(f"{name}: XATO {e}", file=sys.stderr)
+    try:
+        build_tle(outdir)
+    except Exception as e:  # noqa: BLE001
+        print(f"tle: XATO {e}", file=sys.stderr)
     try:
         build_tv(outdir)
     except Exception as e:  # noqa: BLE001

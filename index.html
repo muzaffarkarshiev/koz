@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KO'Z — jonli global OSINT xaritasi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/globe.gl@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/satellite.js@5/dist/satellite.min.js"></script>
+<style>
+  :root{
+    --bg:#05080b; --panel:rgba(8,14,18,.86); --line:#1b2b33; --text:#cfe3ea; --dim:#6f8a95;
+    --acc:#39e6b3; --warn:#ffb020; --bad:#ff4d5e; --sky:#4fb8ff; --sat:#c58bff; --mil:#ff6b3d;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:12px/1.45 "JetBrains Mono",ui-monospace,monospace;overflow:hidden}
+  #globe{position:fixed;inset:0}
+  .panel{position:fixed;background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(6px);border-radius:6px}
+  header{top:10px;left:10px;right:10px;height:44px;display:flex;align-items:center;gap:18px;padding:0 14px}
+  .logo{font-weight:700;letter-spacing:.18em;color:var(--acc)}
+  .logo small{color:var(--dim);letter-spacing:.05em;font-weight:400;margin-left:8px}
+  .stat{color:var(--dim);white-space:nowrap}
+  .stat b{color:var(--text);font-weight:600}
+  .spacer{flex:1}
+  .live{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--acc);margin-right:6px;box-shadow:0 0 8px var(--acc);animation:pulse 1.6s infinite}
+  @keyframes pulse{50%{opacity:.3}}
+  #search{background:#0b141a;border:1px solid var(--line);color:var(--text);font:inherit;padding:6px 10px;border-radius:4px;width:220px}
+  #search:focus{outline:1px solid var(--acc)}
+  #layers{top:64px;left:10px;width:250px;padding:10px 12px;max-height:calc(100% - 120px);overflow-y:auto;overflow-x:hidden}
+  #layers.min>*:not(h3:first-child){display:none}
+  #layers h3:first-child{cursor:pointer}
+  #layers h3:first-child::after{content:' ▾';color:var(--dim)}
+  #layers.min h3:first-child::after{content:' ▸'}
+  h3{margin:4px 0 8px;font-size:11px;letter-spacing:.14em;color:var(--dim);font-weight:600}
+  .layer{display:flex;align-items:center;gap:8px;padding:5px 2px;cursor:pointer;user-select:none;border-bottom:1px dashed #12202a}
+  .layer input{accent-color:var(--acc);margin:0}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .layer .n{margin-left:auto;color:var(--dim)}
+  .layer .st{width:6px;height:6px;border-radius:50%;background:#333;flex:none}
+  .st.ok{background:var(--acc)} .st.err{background:var(--bad)} .st.load{background:var(--warn)}
+  .row{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+  button{background:#0b141a;border:1px solid var(--line);color:var(--text);font:inherit;padding:5px 9px;border-radius:4px;cursor:pointer}
+  button:hover,button.on{border-color:var(--acc);color:var(--acc)}
+  #feed{top:64px;right:10px;width:300px;padding:10px 12px;max-height:calc(100% - 120px);overflow-y:auto;overflow-x:hidden}
+  .item{padding:6px 4px;border-bottom:1px dashed #12202a;cursor:pointer}
+  .item:hover{background:#0c1a20}
+  .item .t{color:var(--dim);font-size:11px}
+  .mag{display:inline-block;min-width:34px;text-align:center;border-radius:3px;padding:0 4px;margin-right:6px;font-weight:700;color:#000}
+  #info{left:50%;transform:translateX(-50%);bottom:44px;min-width:320px;max-width:560px;padding:12px 14px;display:none}
+  #info .x{position:absolute;right:8px;top:6px;cursor:pointer;color:var(--dim)}
+  #info table{border-collapse:collapse;width:100%}
+  #info td{padding:2px 8px 2px 0;vertical-align:top}
+  #info td:first-child{color:var(--dim);white-space:nowrap}
+  #info a{color:var(--sky)}
+  footer{left:10px;right:10px;bottom:10px;height:26px;display:flex;align-items:center;gap:14px;padding:0 12px;color:var(--dim);font-size:11px}
+  footer a{color:var(--dim)}
+  .note{color:var(--warn);font-size:11px;margin-top:8px;display:none}
+  .tip{background:var(--panel);border:1px solid var(--line);padding:4px 8px;border-radius:4px;font:11px "JetBrains Mono",monospace;color:var(--text)}
+  .ev{font-size:16px;cursor:pointer;filter:drop-shadow(0 0 4px rgba(0,0,0,.9));transform:translate(-50%,-50%);pointer-events:auto}
+  @media (max-width:860px){#feed{display:none}#layers{width:210px;font-size:11px}.layer span:nth-child(3){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hide-sm{display:none}#search{width:130px}.logo small{display:none}header{gap:10px}footer span:first-child{display:none}#info{min-width:0;width:calc(100% - 20px)}}
+</style>
+</head>
+<body>
+<div id="globe"></div>
+
+<header class="panel">
+  <div class="logo">◉ KO'Z<small>global OSINT</small></div>
+  <div class="stat"><span class="live"></span><span id="clock">--:--:-- UTC</span></div>
+  <div class="stat hide-sm">✈ <b id="s-fl">0</b></div>
+  <div class="stat hide-sm">🛰 <b id="s-sat">0</b></div>
+  <div class="stat hide-sm">◎ <b id="s-eq">0</b></div>
+  <div class="stat hide-sm" title="Geomagnit Kp indeksi (NOAA SWPC)">Kp <b id="s-kp">–</b></div>
+  <div class="spacer"></div>
+  <input id="search" placeholder="Qidirish: reys, yo'ldosh, joy…" autocomplete="off">
+</header>
+
+<aside id="layers" class="panel">
+  <h3 id="layersToggle">QATLAMLAR</h3>
+  <div id="layerList"></div>
+  <div class="note" id="flightNote">Reyslar ma'lumoti hozircha yo'q (har 10 daqiqada yangilanadi).</div>
+  <h3 style="margin-top:14px">KO'RINISH</h3>
+  <div class="row">
+    <button id="bRotate" class="on">Aylanish</button>
+    <button id="bHome">Boshiga</button>
+    <button id="bUz">O'zbekiston</button>
+    <button id="bTex">Kun/Tun</button>
+  </div>
+</aside>
+
+<aside id="feed" class="panel">
+  <h3>SO'NGGI HODISALAR</h3>
+  <div id="feedList"><div class="t" style="color:var(--dim)">Yuklanmoqda…</div></div>
+</aside>
+
+<div id="info" class="panel"><span class="x" id="infoX">✕</span><div id="infoBody"></div></div>
+
+<footer class="panel">
+  <span>Manbalar: OpenSky · adsb.lol · CelesTrak · USGS · NASA EONET · GDACS · NOAA SWPC</span>
+  <span class="spacer"></span>
+  <span id="lastUpd"></span>
+</footer>
+
+<script>
+(() => {
+"use strict";
+// ---------- Sozlamalar ----------
+const SERVED = location.protocol.startsWith("http");
+const API = { // avval server.py proxy, bo'lmasa GitHub Actions yangilab turadigan fayl
+  flights: ["/api/flights", "data/flights.json"],
+  military: ["/api/military", "data/military.json"],
+};
+async function getFirst(urls){ let err; for (const u of urls) { try { return await getJSON(u); } catch (e) { err = e; } } throw err; }
+const SRC = {
+  quakes: "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson",
+  eonet: "https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=30&limit=400",
+  gdacs: "https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH?eventlist=EQ;TC;FL;VO;DR;WF&alertlevel=Orange;Red",
+  kp: "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json",
+  tle: g => `https://celestrak.org/NORAD/elements/gp.php?GROUP=${g}&FORMAT=tle`,
+};
+const REFRESH = { flights: 30e3, military: 30e3, quakes: 120e3, eonet: 600e3, gdacs: 600e3, kp: 900e3, satProp: 2e3 };
+const TEX = {
+  night: "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-night.jpg",
+  day: "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-blue-marble.jpg",
+  bump: "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-topology.png",
+  sky: "https://cdn.jsdelivr.net/npm/three-globe/example/img/night-sky.png",
+};
+const EONET_ICON = { wildfires:"🔥", volcanoes:"🌋", severeStorms:"🌀", seaLakeIce:"🧊", floods:"🌊", drought:"🏜", dustHaze:"🌫", landslides:"⛰", snow:"❄", tempExtremes:"🌡", waterColor:"💧", manmade:"⚠", earthquakes:"◎" };
+const GDACS_ICON = { EQ:"◎", TC:"🌀", FL:"🌊", VO:"🌋", DR:"🏜", WF:"🔥" };
+
+// ---------- Holat ----------
+const S = {
+  flights: [], military: [], sats: [], satrecs: [], quakes: [], events: [], gdacs: [],
+  on: { flights:true, military:true, sats:true, starlink:false, quakes:true, eonet:true, gdacs:true },
+  status: {}, starlinkLoaded:false, night:true,
+};
+const LAYERS = [
+  { id:"flights",  name:"Fuqaro reyslari",       color:"var(--sky)", src:"OpenSky" },
+  { id:"military", name:"Harbiy samolyotlar",    color:"var(--mil)", src:"adsb.lol" },
+  { id:"sats",     name:"Sun'iy yo'ldoshlar",    color:"var(--sat)", src:"CelesTrak" },
+  { id:"starlink", name:"Starlink (og'ir)",      color:"#8a7dff",    src:"CelesTrak" },
+  { id:"quakes",   name:"Zilzilalar (24 soat)",  color:"var(--warn)",src:"USGS" },
+  { id:"eonet",    name:"Tabiiy hodisalar",      color:"var(--bad)", src:"NASA EONET" },
+  { id:"gdacs",    name:"Ofat ogohlantirishlari",color:"#ff3df2",    src:"GDACS" },
+];
+
+// ---------- Globus ----------
+const el = document.getElementById("globe");
+const globe = Globe()(el)
+  .globeImageUrl(TEX.night)
+  .bumpImageUrl(TEX.bump)
+  .backgroundImageUrl(TEX.sky)
+  .showAtmosphere(true).atmosphereColor("#3fd3ff").atmosphereAltitude(0.18)
+  // zarrachalar: reyslar, harbiy, yo'ldoshlar
+  .particlesList(d => d.list)
+  .particleLat("lat").particleLng("lng").particleAltitude("alt")
+  .particlesColor(d => d.color).particlesSize(d => d.size).particlesSizeAttenuation(false)
+  .particleLabel(p => `<div class="tip">${esc(p.label || "")}</div>`)
+  .onParticleClick(p => showInfo(p))
+  // nuqtalar: zilzilalar
+  .pointLat("lat").pointLng("lng")
+  .pointAltitude(d => 0.005 + Math.max(0, d.mag - 2) * 0.025)
+  .pointRadius(d => 0.12 + d.mag * 0.06)
+  .pointColor(d => magColor(d.mag))
+  .pointLabel(d => `<div class="tip">M${d.mag.toFixed(1)} — ${esc(d.place)}</div>`)
+  .onPointClick(d => showInfo(d))
+  // halqalar: kuchli zilzilalar
+  .ringLat("lat").ringLng("lng").ringColor(() => t => `rgba(255,120,60,${1 - t})`)
+  .ringMaxRadius(d => d.mag * 1.2).ringPropagationSpeed(2).ringRepeatPeriod(1400)
+  // HTML belgilar: EONET + GDACS
+  .htmlLat("lat").htmlLng("lng").htmlAltitude(0.01)
+  .htmlElement(d => {
+    const e = document.createElement("div");
+    e.className = "ev"; e.textContent = d.icon; e.title = d.title;
+    e.onclick = ev => { ev.stopPropagation(); showInfo(d); };
+    return e;
+  });
+globe.controls().autoRotate = true;
+globe.controls().autoRotateSpeed = 0.35;
+globe.pointOfView({ lat: 35, lng: 64, altitude: 2.4 });
+addEventListener("resize", () => globe.width(innerWidth).height(innerHeight));
+
+// ---------- Yordamchi ----------
+function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+function magColor(m){ return m >= 6 ? "#ff2d55" : m >= 5 ? "#ff6b3d" : m >= 4 ? "#ffb020" : "#ffe066"; }
+function ago(ms){ const s = (Date.now() - ms) / 1000; if (s < 3600) return Math.round(s/60) + " daq oldin"; if (s < 86400) return Math.round(s/3600) + " soat oldin"; return Math.round(s/86400) + " kun oldin"; }
+function setStatus(id, st){ S.status[id] = st; const d = document.querySelector(`[data-st="${id}"]`); if (d) d.className = "st " + st; }
+async function getJSON(u){ const r = await fetch(u); if (!r.ok) throw new Error(r.status); return r.json(); }
+async function getText(u){ const r = await fetch(u); if (!r.ok) throw new Error(r.status); return r.text(); }
+function fmt(n){ return n.toLocaleString("en-US"); }
+
+// ---------- Qatlamlar paneli ----------
+const list = document.getElementById("layerList");
+list.innerHTML = LAYERS.map(l => `
+  <label class="layer"><input type="checkbox" data-l="${l.id}" ${S.on[l.id] ? "checked" : ""}>
+  <span class="dot" style="background:${l.color}"></span><span>${l.name}</span>
+  <span class="n" id="n-${l.id}">0</span><span class="st" data-st="${l.id}" title="${l.src}"></span></label>`).join("");
+list.addEventListener("change", e => {
+  const id = e.target.dataset.l; if (!id) return;
+  S.on[id] = e.target.checked;
+  if (id === "starlink" && S.on.starlink && !S.starlinkLoaded) loadSats("starlink");
+  render();
+});
+
+document.getElementById("layersToggle").onclick = () => document.getElementById("layers").classList.toggle("min");
+if (innerWidth < 600) document.getElementById("layers").classList.add("min");
+
+// ---------- Yuklovchilar ----------
+async function loadFlights(){
+  if (!SERVED) { setStatus("flights","err"); setStatus("military","err"); document.getElementById("flightNote").style.display = "block"; return; }
+  setStatus("flights","load");
+  try {
+    const d = await getFirst(API.flights);
+    S.flights = d.states.map(s => ({
+      kind:"flight", id:s[0], callsign:(s[1]||"").trim(), country:s[2], lng:s[3], lat:s[4],
+      altM:s[5] ?? 0, vel:s[6], track:s[7],
+      alt: 0.004 + Math.min(s[5] ?? 0, 14000) / 500000,
+      label: `${(s[1]||"").trim() || s[0]} · ${s[2]}`,
+    }));
+    setStatus("flights","ok");
+  } catch (e) { setStatus("flights","err"); document.getElementById("flightNote").style.display = "block"; }
+  render();
+}
+async function loadMilitary(){
+  if (!SERVED) return;
+  setStatus("military","load");
+  try {
+    const d = await getFirst(API.military);
+    S.military = d.ac.map(a => ({
+      kind:"military", id:a.hex, callsign:(a.flight||"").trim(), type:a.t, reg:a.r, lat:a.lat, lng:a.lon,
+      altM: typeof a.alt === "number" ? a.alt * 0.3048 : 0, vel: a.gs != null ? a.gs * 0.5144 : null, track:a.track,
+      alt: 0.004 + Math.min(typeof a.alt === "number" ? a.alt*0.3048 : 0, 14000) / 500000,
+      label: `${(a.flight||"").trim() || a.hex} · ${a.t || "harbiy"}`,
+    }));
+    setStatus("military","ok");
+  } catch (e) { setStatus("military","err"); }
+  render();
+}
+async function loadSats(group){
+  const id = group === "starlink" ? "starlink" : "sats";
+  setStatus(id, "load");
+  try {
+    const groups = group === "starlink" ? ["starlink"] : ["stations","visual","gps-ops","weather","resource","science","geo"];
+    const texts = await Promise.allSettled(groups.map(g => getText(SRC.tle(g))));
+    const seen = new Set(S.satrecs.map(s => s.norad));
+    texts.forEach((r, gi) => {
+      if (r.status !== "fulfilled") return;
+      const L = r.value.split(/\r?\n/).filter(Boolean);
+      for (let i = 0; i + 2 < L.length + 1; i += 3) {
+        const name = (L[i]||"").trim(), l1 = L[i+1], l2 = L[i+2];
+        if (!l1 || !l2) continue;
+        const norad = l1.slice(2,7).trim();
+        if (seen.has(norad)) continue; seen.add(norad);
+        try { S.satrecs.push({ name, norad, group: groups[gi], starlink: group === "starlink", rec: satellite.twoline2satrec(l1, l2) }); } catch {}
+      }
+    });
+    if (group === "starlink") S.starlinkLoaded = true;
+    setStatus(id, "ok");
+    propagate();
+  } catch (e) { setStatus(id, "err"); }
+}
+function propagate(){
+  const now = new Date(), gmst = satellite.gstime(now);
+  const out = [];
+  for (const s of S.satrecs) {
+    if (s.starlink && !S.on.starlink) continue;
+    const pv = satellite.propagate(s.rec, now);
+    if (!pv || !pv.position) continue;
+    const g = satellite.eciToGeodetic(pv.position, gmst);
+    const h = g.height;
+    const v = pv.velocity ? Math.hypot(pv.velocity.x, pv.velocity.y, pv.velocity.z) : null;
+    out.push({
+      kind:"sat", name:s.name, norad:s.norad, group:s.group, starlink:s.starlink,
+      lat: satellite.degreesLat(g.latitude), lng: satellite.degreesLong(g.longitude),
+      hKm: h, vKms: v, alt: Math.min(h / 6371, 1.6), label: s.name,
+    });
+  }
+  S.sats = out;
+  render(true);
+}
+async function loadQuakes(){
+  setStatus("quakes","load");
+  try {
+    const d = await getJSON(SRC.quakes);
+    S.quakes = d.features.map(f => ({
+      kind:"quake", id:f.id, mag:f.properties.mag ?? 0, place:f.properties.place, time:f.properties.time,
+      url:f.properties.url, tsunami:f.properties.tsunami, depth:f.geometry.coordinates[2],
+      lng:f.geometry.coordinates[0], lat:f.geometry.coordinates[1],
+    })).sort((a,b) => b.time - a.time);
+    setStatus("quakes","ok");
+  } catch (e) { setStatus("quakes","err"); }
+  render(); renderFeed();
+}
+async function loadEonet(){
+  setStatus("eonet","load");
+  try {
+    const d = await getJSON(SRC.eonet);
+    S.events = [];
+    for (const ev of d.events) {
+      const g = ev.geometry[ev.geometry.length - 1]; if (!g) continue;
+      let lng, lat;
+      if (g.type === "Point") [lng, lat] = g.coordinates;
+      else if (g.type === "Polygon") { const r = g.coordinates[0]; lng = r.reduce((a,p)=>a+p[0],0)/r.length; lat = r.reduce((a,p)=>a+p[1],0)/r.length; }
+      else continue;
+      const cat = ev.categories[0]?.id || "manmade";
+      S.events.push({ kind:"eonet", id:ev.id, title:ev.title, cat:ev.categories[0]?.title, icon:EONET_ICON[cat] || "⚠",
+        lat, lng, time: Date.parse(g.date), url: ev.sources?.[0]?.url });
+    }
+    setStatus("eonet","ok");
+  } catch (e) { setStatus("eonet","err"); }
+  render(); renderFeed();
+}
+async function loadGdacs(){
+  setStatus("gdacs","load");
+  try {
+    const d = await getJSON(SRC.gdacs);
+    S.gdacs = (d.features || []).filter(f => f.geometry?.type === "Point").map(f => {
+      const p = f.properties;
+      return { kind:"gdacs", id:p.eventtype + p.eventid, title:p.name || p.htmldescription, cat:p.eventtype,
+        level:p.alertlevel, country:p.country, icon:GDACS_ICON[p.eventtype] || "⚠",
+        lng:f.geometry.coordinates[0], lat:f.geometry.coordinates[1], time:Date.parse(p.fromdate), url:p.url?.report };
+    });
+    setStatus("gdacs","ok");
+  } catch (e) { setStatus("gdacs","err"); }
+  render(); renderFeed();
+}
+async function loadKp(){
+  try { const d = await getJSON(SRC.kp); const last = d[d.length-1]; const kp = last.Kp ?? last[1];
+    const b = document.getElementById("s-kp"); b.textContent = (+kp).toFixed(1); b.style.color = kp >= 5 ? "var(--bad)" : kp >= 4 ? "var(--warn)" : "var(--acc)"; } catch {}
+}
+
+// ---------- Chizish ----------
+let lastHtmlKey = "";
+function render(onlyParticles){
+  const sets = [];
+  if (S.on.flights && S.flights.length)  sets.push({ list:S.flights,  color:"#4fb8ff", size:2.2 });
+  if (S.on.military && S.military.length) sets.push({ list:S.military, color:"#ff6b3d", size:4 });
+  const sats = S.sats.filter(s => s.starlink ? S.on.starlink : S.on.sats);
+  if (sats.length) sets.push({ list:sats, color:"#c58bff", size:2.6 });
+  globe.particlesData(sets);
+  document.getElementById("n-flights").textContent = fmt(S.flights.length);
+  document.getElementById("n-military").textContent = fmt(S.military.length);
+  document.getElementById("n-sats").textContent = fmt(S.sats.filter(s => !s.starlink).length);
+  document.getElementById("n-starlink").textContent = fmt(S.sats.filter(s => s.starlink).length);
+  document.getElementById("s-fl").textContent = fmt(S.flights.length + S.military.length);
+  document.getElementById("s-sat").textContent = fmt(S.sats.length);
+  if (onlyParticles) return;
+  const q = S.on.quakes ? S.quakes : [];
+  globe.pointsData(q);
+  globe.ringsData(q.filter(d => d.mag >= 4.5));
+  const html = [...(S.on.eonet ? S.events : []), ...(S.on.gdacs ? S.gdacs : [])];
+  const key = html.length + ":" + S.on.eonet + S.on.gdacs + (html[0]?.id || "");
+  if (key !== lastHtmlKey) { globe.htmlElementsData(html); lastHtmlKey = key; }
+  document.getElementById("n-quakes").textContent = S.quakes.length;
+  document.getElementById("n-eonet").textContent = S.events.length;
+  document.getElementById("n-gdacs").textContent = S.gdacs.length;
+  document.getElementById("s-eq").textContent = S.quakes.length;
+  document.getElementById("lastUpd").textContent = "Yangilandi: " + new Date().toUTCString().slice(17, 25) + " UTC";
+}
+function renderFeed(){
+  const items = [
+    ...S.quakes.filter(q => q.mag >= 3.5).map(q => ({ ...q, _h:`<span class="mag" style="background:${magColor(q.mag)}">${q.mag.toFixed(1)}</span>${esc(q.place)}` })),
+    ...S.gdacs.map(g => ({ ...g, _h:`${g.icon} <b style="color:${g.level==="Red"?"var(--bad)":"var(--warn)"}">${esc(g.level)}</b> ${esc(g.title)}` })),
+    ...S.events.slice().sort((a,b)=>b.time-a.time).slice(0,25).map(e => ({ ...e, _h:`${e.icon} ${esc(e.title)}` })),
+  ].sort((a,b) => (b.time||0) - (a.time||0)).slice(0, 80);
+  const box = document.getElementById("feedList");
+  box.innerHTML = items.map((it,i) => `<div class="item" data-i="${i}">${it._h}<div class="t">${it.time ? ago(it.time) : ""}</div></div>`).join("") || '<div class="t">Hodisa yo\'q</div>';
+  box.onclick = e => { const d = e.target.closest(".item"); if (!d) return; const it = items[+d.dataset.i]; fly(it); showInfo(it); };
+}
+
+// ---------- Ma'lumot oynasi ----------
+function row(k, v){ return v == null || v === "" ? "" : `<tr><td>${k}</td><td>${v}</td></tr>`; }
+function showInfo(d){
+  let h = "";
+  if (d.kind === "flight" || d.kind === "military") {
+    h = `<b style="color:${d.kind==="military"?"var(--mil)":"var(--sky)"}">${d.kind==="military"?"HARBIY":"REYS"} ${esc(d.callsign || d.id)}</b><table>
+      ${row("ICAO24", esc(d.id))}${row("Davlat", esc(d.country))}${row("Turi", esc(d.type))}${row("Ro'yxat №", esc(d.reg))}
+      ${row("Balandlik", d.altM ? fmt(Math.round(d.altM)) + " m" : "")}${row("Tezlik", d.vel != null ? Math.round(d.vel*3.6) + " km/soat" : "")}
+      ${row("Yo'nalish", d.track != null ? Math.round(d.track) + "°" : "")}${row("Koordinata", d.lat.toFixed(3)+", "+d.lng.toFixed(3))}
+      ${row("Havola", `<a href="https://globe.adsbexchange.com/?icao=${encodeURIComponent(d.id)}" target="_blank" rel="noopener">ADS-B Exchange</a>`)}</table>`;
+  } else if (d.kind === "sat") {
+    h = `<b style="color:var(--sat)">🛰 ${esc(d.name)}</b><table>${row("NORAD", esc(d.norad))}${row("Guruh", esc(d.group))}
+      ${row("Balandlik", fmt(Math.round(d.hKm)) + " km")}${row("Tezlik", d.vKms ? d.vKms.toFixed(2) + " km/s" : "")}
+      ${row("Koordinata", d.lat.toFixed(2)+", "+d.lng.toFixed(2))}
+      ${row("Havola", `<a href="https://www.n2yo.com/satellite/?s=${encodeURIComponent(d.norad)}" target="_blank" rel="noopener">N2YO</a>`)}</table>`;
+  } else if (d.kind === "quake") {
+    h = `<b style="color:${magColor(d.mag)}">◎ ZILZILA M${d.mag.toFixed(1)}</b><table>${row("Joy", esc(d.place))}
+      ${row("Vaqt", new Date(d.time).toUTCString() + " (" + ago(d.time) + ")")}${row("Chuqurlik", d.depth?.toFixed(1) + " km")}
+      ${row("Tsunami", d.tsunami ? "<b style='color:var(--bad)'>ogohlantirish bor</b>" : "yo'q")}
+      ${row("Havola", `<a href="${esc(d.url)}" target="_blank" rel="noopener">USGS</a>`)}</table>`;
+  } else {
+    h = `<b>${d.icon} ${esc(d.title)}</b><table>${row("Turi", esc(d.cat))}${row("Daraja", esc(d.level))}${row("Davlat", esc(d.country))}
+      ${row("Sana", d.time ? new Date(d.time).toUTCString() : "")}${row("Koordinata", d.lat.toFixed(2)+", "+d.lng.toFixed(2))}
+      ${row("Manba", d.url ? `<a href="${esc(d.url)}" target="_blank" rel="noopener">batafsil</a>` : "")}</table>`;
+  }
+  document.getElementById("infoBody").innerHTML = h;
+  document.getElementById("info").style.display = "block";
+}
+document.getElementById("infoX").onclick = () => document.getElementById("info").style.display = "none";
+
+// ---------- Boshqaruv ----------
+function fly(d, alt = 0.9){ globe.controls().autoRotate = false; document.getElementById("bRotate").classList.remove("on"); globe.pointOfView({ lat:d.lat, lng:d.lng, altitude:alt }, 1500); }
+document.getElementById("bRotate").onclick = e => { const c = globe.controls(); c.autoRotate = !c.autoRotate; e.target.classList.toggle("on", c.autoRotate); };
+document.getElementById("bHome").onclick = () => globe.pointOfView({ lat:35, lng:64, altitude:2.4 }, 1500);
+document.getElementById("bUz").onclick = () => fly({ lat:41.3, lng:64.5 }, 0.45);
+document.getElementById("bTex").onclick = e => { S.night = !S.night; globe.globeImageUrl(S.night ? TEX.night : TEX.day); e.target.classList.toggle("on", !S.night); };
+
+document.getElementById("search").addEventListener("keydown", async e => {
+  if (e.key !== "Enter") return;
+  const q = e.target.value.trim().toLowerCase(); if (!q) return;
+  const hit = [...S.flights, ...S.military].find(f => (f.callsign||"").toLowerCase().startsWith(q) || f.id === q)
+    || S.sats.find(s => s.name.toLowerCase().includes(q) || s.norad === q)
+    || S.quakes.find(x => (x.place||"").toLowerCase().includes(q))
+    || [...S.events, ...S.gdacs].find(x => (x.title||"").toLowerCase().includes(q));
+  if (hit) { fly(hit, hit.kind === "sat" ? Math.max(0.9, hit.alt + 0.6) : 0.6); showInfo(hit); return; }
+  // joy nomi bo'yicha (OpenStreetMap Nominatim)
+  try {
+    const r = await getJSON(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
+    if (r[0]) fly({ lat:+r[0].lat, lng:+r[0].lon }, 0.35);
+  } catch {}
+});
+
+setInterval(() => { document.getElementById("clock").textContent = new Date().toISOString().slice(11,19) + " UTC"; }, 1000);
+
+// ---------- Ishga tushirish ----------
+loadQuakes(); loadEonet(); loadGdacs(); loadKp(); loadSats("main"); loadFlights(); loadMilitary();
+setInterval(loadFlights, REFRESH.flights);
+setInterval(loadMilitary, REFRESH.military);
+setInterval(loadQuakes, REFRESH.quakes);
+setInterval(loadEonet, REFRESH.eonet);
+setInterval(loadGdacs, REFRESH.gdacs);
+setInterval(loadKp, REFRESH.kp);
+setInterval(propagate, REFRESH.satProp);
+})();
+</script>
+</body>
+</html>
